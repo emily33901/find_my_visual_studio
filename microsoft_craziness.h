@@ -50,6 +50,8 @@ typedef struct
 
     wchar_t *vs_exe_path;
     wchar_t *vs_library_path;
+
+	wchar_t *msbuild_exe_path;
 } Find_Result;
 
 Find_Result find_visual_studio_and_windows_sdk();
@@ -153,6 +155,7 @@ void free_resources(Find_Result *result) {
     free(result->windows_sdk_ucrt_library_path);
     free(result->vs_exe_path);
     free(result->vs_library_path);
+	free(result->msbuild_exe_path);
 }
 
 
@@ -442,6 +445,27 @@ void find_windows_kit_root(Find_Result *result) {
     RegCloseKey(main_key);
 }
 
+void msbuild_best(wchar_t *short_name, wchar_t *full_name, Version_Data *data) {
+	int i0, i1;
+	auto success = swscanf_s(short_name, L"%d.%d", &i0, &i1);
+	if (success < 1) return;
+
+	if (i0 < data->best_version[0]) return;
+	else if (i0 == data->best_version[0]) {
+		if (i1 < data->best_version[1]) return;
+	}
+
+	// we have to copy_string and free here because visit_files free's the full_name string
+	// after we execute this function, so Win*_Data would contain an invalid pointer.
+	if (data->best_name) free(data->best_name);
+	data->best_name = _wcsdup(full_name);
+
+	if (data->best_name) {
+		data->best_version[0] = i0;
+		data->best_version[1] = i1;
+	}
+}
+
 bool find_visual_studio_2017_by_fighting_through_microsoft_craziness(Find_Result *result) {
     HRESULT rc = CoInitialize(NULL);
     // "Subsequent valid calls return false." So ignore false.
@@ -513,10 +537,23 @@ bool find_visual_studio_2017_by_fighting_through_microsoft_craziness(Find_Result
             wchar_t *link_exe_path = concat4(bstr_inst_path, L"\\VC\\Tools\\MSVC\\", version, L"\\bin\\Hostx64\\x64");
             free(version);
 
-            result->vs_exe_path     = link_exe_path;
-            result->vs_library_path = library_path;
-            found_visual_studio_2017 = true;
-            break;
+			result->vs_exe_path = link_exe_path;
+			result->vs_library_path = library_path;
+
+			wchar_t *msbuild_root = concat2(bstr_inst_path, L"\\MSBuild");
+
+			Version_Data data = {0};
+			visit_files_w(msbuild_root, &data, msbuild_best);
+			free(msbuild_root);
+
+			if (data.best_name) {
+				wchar_t *exe_path = concat2(data.best_name, L"\\Bin");
+				free(data.best_name);
+
+				result->msbuild_exe_path = exe_path;
+				found_visual_studio_2017 = true;
+				break;
+			}
         }
 
         free(version);
