@@ -552,8 +552,23 @@ bool find_visual_studio_2017_by_fighting_through_microsoft_craziness(Find_Result
 
 				result->msbuild_exe_path = exe_path;
 				found_visual_studio_2017 = true;
-				break;
+			} else {
+				wchar_t *program_files = _wgetenv(L"ProgramFiles(x86)");
+
+				wchar_t *msbuild_root = concat2(program_files, L"\\MSBuild");
+				visit_files_w(msbuild_root, &data, msbuild_best);
+				free(msbuild_root);
+
+				if (data.best_name) {
+					wchar_t *exe_path = concat2(data.best_name, L"\\Bin");
+					free(data.best_name);
+
+					result->msbuild_exe_path = exe_path;
+					found_visual_studio_2017 = true;
+				}
 			}
+
+			break;
         }
 
         free(version);
@@ -667,3 +682,4 @@ Find_Result find_visual_studio_and_windows_sdk() {
 #ifdef __cplusplus
 }
 #endif
+
