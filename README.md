@@ -16,5 +16,6 @@ Where args can be:
  - `win_version` - windows sdk version
  - `vs_exe` - visual studio exe folder
  - `vs_library` - visual studio libraries folder
+ - `msbuild_exe` - msbuild exe folder
  
 Values are printed on their own line, in the order provided in the argument list.
