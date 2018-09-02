@@ -1,0 +1,5 @@
+.vscode
+.cquery_cached_index
+.vs
+Release/
+Debug/
