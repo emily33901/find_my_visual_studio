@@ -491,6 +491,13 @@ bool find_visual_studio_2017_by_fighting_through_microsoft_craziness(Find_Result
     if (hr != 0)     return false;
     if (!instances)  return false;
 
+    // SetupInstance will return the installations in the order they were made
+    // - this results in 2017 being got before 2019 and we dont want this
+    // so get all the installations first, parse the versions and pick the best
+    BSTR best_path = NULL;
+    Version_Data best_version;
+    best_version.best_name = NULL;
+
     bool found_visual_studio_2017 = false;
     while (1) {
         ULONG found = 0;
@@ -498,51 +505,75 @@ bool find_visual_studio_2017_by_fighting_through_microsoft_craziness(Find_Result
         HRESULT hr = CALL_STDMETHOD(instances, Next, 1, &instance, &found);
         if (hr != S_OK) break;
 
+        BSTR vs_version;
+        hr = CALL_STDMETHOD(instance, GetInstallationVersion, &vs_version);
+
+        win10_best(vs_version, vs_version, &best_version);
+
         BSTR bstr_inst_path;
         hr = CALL_STDMETHOD(instance, GetInstallationPath, &bstr_inst_path);
         CALL_STDMETHOD_(instance, Release);
         if (hr != S_OK)  continue;
 
-        wchar_t *tools_filename = concat2(bstr_inst_path, L"\\VC\\Auxiliary\\Build\\Microsoft.VCToolsVersion.default.txt");
-        SysFreeString(bstr_inst_path);
+        // Do this here to get instance->Release() called
+        if (lstrcmpW(best_version.best_name, vs_version)) continue;
 
-        FILE *f;
-        errno_t open_result = _wfopen_s(&f, tools_filename, L"rt");
-        free(tools_filename);
-        if (open_result != 0) continue;
-        if (!f) continue;
+        best_path = bstr_inst_path;
+    }
 
-        LARGE_INTEGER tools_file_size;
-        HANDLE file_handle = (HANDLE)_get_osfhandle(_fileno(f));
-        BOOL success = GetFileSizeEx(file_handle, &tools_file_size);
-        if (!success) {
-            fclose(f);
-            continue;
-        }
+    if (best_path == NULL) goto failed;
 
-        uint64_t version_bytes = (tools_file_size.QuadPart + 1) * 2;  // Warning: This multiplication by 2 presumes there is no variable-length encoding in the wchars (wacky characters in the file could betray this expectation).
-        wchar_t *version = (wchar_t *)malloc(version_bytes);
+    wchar_t *tools_filename = concat2(best_path, L"\\VC\\Auxiliary\\Build\\Microsoft.VCToolsVersion.default.txt");
 
-        wchar_t *read_result = fgetws(version, version_bytes, f);
+    FILE *f;
+    errno_t open_result = _wfopen_s(&f, tools_filename, L"rt");
+    free(tools_filename);
+    if (open_result != 0) return false;
+    if (!f) return false;
+
+    LARGE_INTEGER tools_file_size;
+    HANDLE file_handle = (HANDLE)_get_osfhandle(_fileno(f));
+    BOOL success = GetFileSizeEx(file_handle, &tools_file_size);
+    if (!success) {
         fclose(f);
-        if (!read_result) continue;
+        return false;
+    }
 
-        wchar_t *version_tail = wcschr(version, '\n');
-        if (version_tail)  *version_tail = 0;  // Stomp the data, because nobody cares about it.
+    uint64_t version_bytes = (tools_file_size.QuadPart + 1) * 2;  // Warning: This multiplication by 2 presumes there is no variable-length encoding in the wchars (wacky characters in the file could betray this expectation).
+    wchar_t *version = (wchar_t *)malloc(version_bytes);
 
-        wchar_t *library_path = concat4(bstr_inst_path, L"\\VC\\Tools\\MSVC\\", version, L"\\lib\\x64");
-        wchar_t *library_file = concat2(library_path, L"\\vcruntime.lib");  // @Speed: Could have library_path point to this string, with a smaller count, to save on memory flailing!
+    wchar_t *read_result = fgetws(version, version_bytes, f);
+    fclose(f);
+    if (!read_result) return false;
 
-        if (os_file_exists(library_file)) {
-            wchar_t *link_exe_path = concat4(bstr_inst_path, L"\\VC\\Tools\\MSVC\\", version, L"\\bin\\Hostx64\\x64");
-            free(version);
+    wchar_t *version_tail = wcschr(version, '\n');
+    if (version_tail)  *version_tail = 0;  // Stomp the data, because nobody cares about it.
 
-			result->vs_exe_path = link_exe_path;
-			result->vs_library_path = library_path;
+    wchar_t *library_path = concat4(best_path, L"\\VC\\Tools\\MSVC\\", version, L"\\lib\\x64");
+    wchar_t *library_file = concat2(library_path, L"\\vcruntime.lib");  // @Speed: Could have library_path point to this string, with a smaller count, to save on memory flailing!
 
-			wchar_t *msbuild_root = concat2(bstr_inst_path, L"\\MSBuild");
+    if (os_file_exists(library_file)) {
+        wchar_t *link_exe_path = concat4(best_path, L"\\VC\\Tools\\MSVC\\", version, L"\\bin\\Hostx64\\x64");
 
-			Version_Data data = {0};
+		result->vs_exe_path = link_exe_path;
+		result->vs_library_path = library_path;
+
+		wchar_t *msbuild_root = concat2(best_path, L"\\MSBuild");
+
+		Version_Data data = {0};
+		visit_files_w(msbuild_root, &data, msbuild_best);
+		free(msbuild_root);
+
+		if (data.best_name) {
+			wchar_t *exe_path = concat2(data.best_name, L"\\Bin");
+			free(data.best_name);
+
+			result->msbuild_exe_path = exe_path;
+			found_visual_studio_2017 = true;
+		} else {
+			wchar_t *program_files = _wgetenv(L"ProgramFiles(x86)");
+
+			wchar_t *msbuild_root = concat2(program_files, L"\\MSBuild");
 			visit_files_w(msbuild_root, &data, msbuild_best);
 			free(msbuild_root);
 
@@ -552,34 +583,21 @@ bool find_visual_studio_2017_by_fighting_through_microsoft_craziness(Find_Result
 
 				result->msbuild_exe_path = exe_path;
 				found_visual_studio_2017 = true;
-			} else {
-				wchar_t *program_files = _wgetenv(L"ProgramFiles(x86)");
-
-				wchar_t *msbuild_root = concat2(program_files, L"\\MSBuild");
-				visit_files_w(msbuild_root, &data, msbuild_best);
-				free(msbuild_root);
-
-				if (data.best_name) {
-					wchar_t *exe_path = concat2(data.best_name, L"\\Bin");
-					free(data.best_name);
-
-					result->msbuild_exe_path = exe_path;
-					found_visual_studio_2017 = true;
-				}
 			}
-
-			break;
-        }
-
-        free(version);
-
-        /*
-           Ryan Saunderson said:
-           "Clang uses the 'SetupInstance->GetInstallationVersion' / ISetupHelper->ParseVersion to find the newest version
-           and then reads the tools file to define the tools path - which is definitely better than what i did."
-           So... @Incomplete: Should probably pick the newest version...
-        */
+		}
     }
+
+    free(version);
+    SysFreeString(best_path);
+
+    /*
+        Ryan Saunderson said:
+        "Clang uses the 'SetupInstance->GetInstallationVersion' / ISetupHelper->ParseVersion to find the newest version
+        and then reads the tools file to define the tools path - which is definitely better than what i did."
+        So... @Incomplete: Should probably pick the newest version...
+    */
+    
+failed:
 
     CALL_STDMETHOD_(instances, Release);
     return found_visual_studio_2017;
