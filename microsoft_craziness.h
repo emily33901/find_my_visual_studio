@@ -448,7 +448,19 @@ void find_windows_kit_root(Find_Result *result) {
 void msbuild_best(wchar_t *short_name, wchar_t *full_name, Version_Data *data) {
 	int i0, i1;
 	auto success = swscanf_s(short_name, L"%d.%d", &i0, &i1);
-	if (success < 1) return;
+	if (success < 1) {
+        // Sigh... they changed this in vs2019 to have a "Current" folder
+        // So if that exists then fake the best version to be high
+        // becuase that will be the correct folder
+
+        if (lstrcmpW(short_name, L"Current")) return;
+
+        if (data->best_name) free(data->best_name);
+	    data->best_name = _wcsdup(full_name);
+
+        data->best_version[0] = 100;
+        return;
+    }
 
 	if (i0 < data->best_version[0]) return;
 	else if (i0 == data->best_version[0]) {
