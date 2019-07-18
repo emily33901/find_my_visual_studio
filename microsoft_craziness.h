@@ -50,6 +50,7 @@ typedef struct
 
     wchar_t *vs_exe_path;
     wchar_t *vs_library_path;
+    wchar_t *vs_root_path;
 
 	wchar_t *msbuild_exe_path;
 } Find_Result;
@@ -156,6 +157,7 @@ void free_resources(Find_Result *result) {
     free(result->vs_exe_path);
     free(result->vs_library_path);
 	free(result->msbuild_exe_path);
+	free(result->vs_root_path);
 }
 
 
@@ -534,6 +536,8 @@ bool find_visual_studio_2017_by_fighting_through_microsoft_craziness(Find_Result
     }
 
     if (best_path == NULL) goto failed;
+    
+    result->vs_root_path = _wcsdup(best_path);
 
     wchar_t *tools_filename = concat2(best_path, L"\\VC\\Auxiliary\\Build\\Microsoft.VCToolsVersion.default.txt");
 

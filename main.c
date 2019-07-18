@@ -23,7 +23,9 @@ int main(int argc, char **argv) {
 			wprintf(L"%s\n", result.vs_library_path);
 		} else if(strcmp(param, "msbuild_exe") == 0) {
 			wprintf(L"%s\n", result.msbuild_exe_path);
-		}
+        } else if (strcmp(param, "vs_root") == 0) {
+            wprintf(L"%s\n", result.vs_root_path);
+        }
     }
 
     return 0;

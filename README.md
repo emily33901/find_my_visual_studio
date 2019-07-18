@@ -11,11 +11,12 @@ Usage:
 
 Where args can be:
  - `win_root` - windows sdk root folder
- - `win_um` - windows sdk um folder
- - `win_ucrt` - windows sdk ucrt folder
+ - `win_um` - windows sdk um lib folder
+ - `win_ucrt` - windows sdk ucrt lib folder
  - `win_version` - windows sdk version
- - `vs_exe` - visual studio exe folder
+ - `vs_exe` - cl.exe folder
  - `vs_library` - visual studio libraries folder
  - `msbuild_exe` - msbuild exe folder
+ - `vs_root` - visual studio root folder
  
 Values are printed on their own line, in the order provided in the argument list.
